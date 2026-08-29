@@ -1,0 +1,112 @@
+*janus.txt*  Declarative per-project colorscheme switching
+
+==============================================================================
+INTRODUCTION                                                    *janus.nvim*
+
+janus.nvim reads an inert key-value file (default: ".janus") at a project
+root and applies its colorscheme and 'background' whenever you edit a buffer
+inside that tree. No |exrc|, no |:trust|, no code execution.
+
+Requires Neovim 0.9+.
+
+==============================================================================
+THE .janus FILE                                                 *janus-file*
+
+Plain text. One "key = value" per line. Blank lines and lines beginning with
+"#" are ignored. Exactly two keys are recognized; everything else is skipped: >
+    # colours for this repo
+    colorscheme = cyberdream
+    background  = light
+<
+`background` must be "dark" or "light". Comments must be on their own line.
+The nearest `.janus` at or above the current buffer wins. The upward search
+stops at your home directory, and at a project boundary: a `.janus` above a
+nearer `root_markers` directory (`.git` by default) does not apply, so a repo
+checked out inside another repo keeps its own theme instead of inheriting the
+outer one. Drop a `.janus` in the inner repo if you do want it themed.
+
+                                                            *janus-variants*
+CAVEAT: SAME-NAME VARIANTS ~
+
+janus decides whether a switch is needed from the colorscheme name plus
+'background'; specifically the pair it last applied, not `g:colors_name`.
+It cannot tell two setups apart when both are identical.
+
+The failure mode is a colorscheme whose light and dark forms report the SAME
+`g:colors_name`. cyberdream is the usual offender (`cyberdream-light` and
+`cyberdream` both end up as `g:colors_name` == "cyberdream"); rose-pine and
+other multi-variant schemes can behave the same way.
+
+Mitigations:
+- Express the variant through `background`, not the name:
+  `colorscheme = cyberdream` + `background = light`, restored default
+  `colorscheme = cyberdream` + `background = dark`. janus re-sources on a
+  'background' change even when the name is unchanged, so this reverts
+  cleanly.
+- Set `default_colorscheme` / `default_background` explicitly in |janus-setup|
+  rather than relying on the lazy capture, so the restore target is exact.
+- Or just use a differently-named scheme for the workspace; distinct names
+  never collide.
+
+==============================================================================
+SETUP                                                          *janus-setup*
+
+Optional -- the plugin auto-initializes with defaults at VimEnter. Call
+`setup()` to override: >
+    require("janus").setup({
+      filename = ".janus",
+      default_colorscheme = nil,  -- nil => colorscheme at first sync
+      default_background  = nil,  -- nil => 'background' at first sync
+      sticky = false,
+      root_markers = { ".git" },
+      silent = false,
+    })
+<
+`default_colorscheme` / `default_background` are what janus restores when you
+move to a buffer that no `.janus` governs. When left nil they are captured
+the first time janus runs a sync this session -- not at `setup()`; so a
+colorscheme plugin that loads after janus is still picked up correctly.
+
+`sticky` (default false): when true, janus applies a `.janus` theme whenever
+it finds one but never reverts on leaving. The last theme carries over until
+a different `.janus`, a manual |:colorscheme|, or |:JanusReset| changes it.
+`:JanusReset` still restores the default even under `sticky`.
+
+==============================================================================
+COMMANDS                                                     *janus-commands*
+
+:JanusSet {colorscheme} [dark|light]                              *:JanusSet*
+    Write `.janus` for the current workspace and apply it immediately. Writes
+    to the nearest existing `.janus`, else the nearest project root, else the
+    current directory. Completion offers installed colorschemes, then the
+    background modes.
+
+:JanusGet                                                         *:JanusGet*
+    Echo the workspace root, the file it came from, and the resolved
+    colorscheme / background for the current buffer.
+
+:JanusReset                                                     *:JanusReset*
+    Delete the `.janus` governing the current buffer and restore
+    `default_colorscheme` / `default_background`.
+
+==============================================================================
+BEHAVIOUR                                                    *janus-behaviour*
+
+Triggers on |VimEnter|, |BufEnter| and |DirChanged|. The resolved workspace
+root is cached, so re-entering a buffer in the same workspace does no work. A
+missing colorscheme is caught with |pcall| -- janus warns (unless `silent`)
+and keeps the current one.
+
+janus tracks the colorscheme/'background' pair it last applied, not
+`g:colors_name`. A light variant that reports the same name as its dark form
+(e.g. `cyberdream-light` -> `g:colors_name` == "cyberdream") is still
+re-sourced on the way out, so leaving the workspace restores the real
+default instead of stranding you on the variant.
+
+The theme follows the directory of the buffer you are editing. Special
+buffers ('buftype' not empty: terminals, help, quickfix, and plugin pickers
+or file trees) are inert -- janus does nothing while one is focused and
+re-syncs from the next real buffer. This is why the theme does not flip when
+you open a fuzzy finder or file tree after `:e`-ing into another repo.
+
+ vim:tw=78:ts=8:ft=help:norl:
