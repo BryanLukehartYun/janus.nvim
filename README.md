@@ -2,7 +2,7 @@
 
 This plugin is a lightweight, minimal friction, and declarative colorscheme manager on repo by repo (folder by folder) for Neovim.
 
-Drop a `.janus` file in a repo and it uses `cyberdream-light`. A subfolder inside it can say `rose-pine-dawn`; another repo entirely can be `elflord`. Every repo without a `.janus` just uses your preset colorscheme. That's the whole plugin as it reads two keys and calls the colorschemes you already have installed, as needed.
+Drop a `.janus` file in a repo and it uses `cyberdream-light`. A subfolder inside it can say `rose-pine-dawn`; another repo entirely can be `elflord`. Every repo without a `.janus` just uses your preset colorscheme. This whole plugin as it is reads two keys and calls the colorschemes you already have installed, as needed.
 
 The inspiration came from VS Code's Peacock extension. **janus.nvim** helps differentiate workspaces the way Peacock does, using the same idea of a per-workspace marker file. In this case, a `.janus` dotfile sets the colorscheme to reuse whole colorschemes as the per-workspace signal instead of tinting the window chrome an accent color.
 
@@ -121,8 +121,12 @@ The one thing I'd still consider is a per-repo transparency toggle, since that's
 
 There is a concern that I did note: `.janus` is a custom dotfile and in case there is another user besides me, you would need to remember to include this filetype in the gitignore, so do note that
 
+> Note: It just occured to me that [carlhuda/janus](https://github.com/carlhuda/janus) also has the same name where in this case, its a distribution last updated circa ~10 years ago. If the name is a concern, let me know via git issue and I can explore it. I maintain that the name janus is appropriate for this usecase in any cases.
+
 ---
 
 ## License
 
-MIT © Bryan Lukehart-Yun
+MIT License © Bryan Lukehart-Yun
+
+This code is free to use under the terms of the MIT License as desired following the terms and conditions listed.
