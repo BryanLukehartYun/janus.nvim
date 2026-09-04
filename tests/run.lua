@@ -49,6 +49,34 @@ ok(
   "utils: a .janus at the inner root still governs"
 )
 
+-- plugin/ auto-init ---------------------------------------------------
+-- plugin/janus.lua must auto-init even with no opts/config: on a normal load
+-- via its VimEnter autocmd, and -- when a plugin manager sources it lazily
+-- after VimEnter has already fired -- immediately, since the `once` autocmd
+-- would never run in that case and janus would silently do nothing.
+local plugin_file = vim.api.nvim_get_runtime_file("plugin/janus.lua", false)[1]
+
+-- (a) sourced before VimEnter: autocmd is armed, then fires on VimEnter.
+vim.g.loaded_janus = nil
+vim.cmd.source(plugin_file)
+ok(vim.fn.exists("#janus_autoinit#VimEnter") == 1, "auto-init: VimEnter autocmd armed pre-startup")
+vim.cmd("doautocmd VimEnter")
+ok(require("janus")._did_setup, "auto-init: VimEnter runs setup() with no opts")
+ok(vim.fn.exists("#janus#BufEnter") == 1, "auto-init: sync augroup registered")
+ok(vim.fn.exists(":JanusSet") == 2, "auto-init: commands registered")
+
+-- (b) sourced after VimEnter (the lazy-load-on-an-event path): init must run
+-- inline rather than only arm a `once` autocmd that can never fire again.
+-- Headless startup keeps vim.v.vim_did_enter at 0 and a nested nvim under
+-- vim.fn.system() hangs, so this can't be exercised live here -- assert the
+-- source keeps the vim_did_enter branch instead. The live check is the
+-- `{ "BryanLukehartYun/janus.nvim", event = "VeryLazy" }` smoke test.
+local src = table.concat(vim.fn.readfile(plugin_file), "\n")
+ok(
+  src:find("vim%.v%.vim_did_enter == 1", 1) ~= nil and src:find("auto_init%(%)", 1) ~= nil,
+  "auto-init: plugin/ initialises inline when vim_did_enter is set"
+)
+
 -- integration ---------------------------------------------------------
 require("janus").setup({ default_colorscheme = "janusone", silent = true })
 ok(vim.fn.exists(":JanusSet") == 2, "command registered")
@@ -112,6 +140,23 @@ ok(vim.g.colors_name == "janustwo", "baseline: workspace theme applied")
 vim.cmd.edit(vim.fn.tempname() .. ".txt")
 require("janus").sync({ force = true })
 ok(vim.g.colors_name == "janusone", "baseline: reverts to the colorscheme active at first sync")
+
+-- no colorscheme at first sync: baseline capture must wait for one -------
+-- If janus's first sync beats the colorscheme plugin, vim.g.colors_name is
+-- nil. janus must not latch that as the baseline (which would wedge apply()
+-- on {nil,nil}), and leaving a workspace with nothing to revert to must be
+-- a no-op rather than a crash.
+vim.fn.writefile({ "colorscheme = janustwo" }, tmp .. "/.janus")
+vim.g.colors_name = nil
+require("janus").setup({ silent = true })
+vim.cmd.edit(tmp .. "/a/b/c/file.txt")
+require("janus").sync({ force = true })
+ok(vim.g.colors_name == "janustwo", "no-baseline: workspace theme still applies")
+vim.cmd.edit(vim.fn.tempname() .. ".txt")
+local ok_leave = pcall(function()
+  require("janus").sync({ force = true })
+end)
+ok(ok_leave and vim.g.colors_name == "janustwo", "no-baseline: leaving is a no-op, no error")
 
 -- shim colorscheme: .janus name differs from the resulting colors_name -----
 -- `januslight` renders a light variant but reports colors_name = "janusone",

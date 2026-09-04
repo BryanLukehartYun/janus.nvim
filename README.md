@@ -33,16 +33,11 @@ Install with your preferred plugin manager:
 {
   "BryanLukehartYun/janus.nvim",
   event = "VeryLazy",
-  opts = {
-    filename = ".janus",
-    default_colorscheme = nil, -- nil => colorscheme active when janus first runs
-    default_background = nil,   -- nil => 'background' when janus first runs
-    sticky = false,             -- true => apply on entry, never revert on leaving
-  },
+  -- opts = { ... }, -- see Configuration below; every key has a default
 }
 ```
 
-`setup()` is optional as the plugin auto-initializes with defaults at `VimEnter`. Pass `opts` (or call `require("janus").setup{}`) only to override them.
+`setup()` is optional as the plugin auto-initializes with defaults at `VimEnter`. Pass `opts` (or call `require("janus").setup{}`) only to override them. The full list of keys and their defaults is in [Configuration](#configuration).
 
 > Personally I just do `:JanusSet catppuccin` and that gets the job done.
 

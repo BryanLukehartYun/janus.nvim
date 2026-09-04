@@ -91,9 +91,14 @@ end
 function M.sync(opts)
   opts = opts or {}
 
-  if not state.baseline then
+  -- Capture the pre-janus theme, but only once a colorscheme actually exists.
+  -- If janus's first sync beats the colorscheme plugin, vim.g.colors_name is
+  -- nil; recording that as the baseline leaves state.applied.colorscheme nil,
+  -- and apply()'s redundancy check then reads any later apply(nil, ...) as a
+  -- no-op, so the baseline can never be restored on the way out.
+  if not state.baseline and vim.g.colors_name then
     state.baseline = { colorscheme = vim.g.colors_name, background = vim.o.background }
-    state.applied = { colorscheme = vim.g.colors_name, background = vim.o.background }
+    state.applied = vim.deepcopy(state.baseline)
   end
 
   local start_dir = opts.dir or utils.buf_dir(0)

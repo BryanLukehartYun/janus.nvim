@@ -1,9 +1,11 @@
 
 
 # ------------------------------------------
-# Specified by Author - Ignore this: 
+# Specified by Author - Ignore this:
 # ------------------------------------------
-# tests
+# This test folder was only meant to be local and by maintainer. 
+# An older version will still be retain with the initial commits for the annals of history
+tests/
 
 # ==========================================
 # Operating Systems

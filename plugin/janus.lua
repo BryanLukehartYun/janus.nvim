@@ -6,15 +6,27 @@ vim.g.loaded_janus = true
 -- Auto-init with defaults if the user never calls setup(), so declarative
 -- `.janus` switching works out of the box. An explicit setup() still wins
 -- (it re-clears the augroup).
-vim.api.nvim_create_autocmd("VimEnter", {
-  once = true,
-  callback = function()
-    local janus = require("janus")
-    if not janus._did_setup then
-      janus.setup({})
-    end
-  end,
-})
+--
+-- If this file is sourced after VimEnter has already fired which is what
+-- happens when a plugin manager lazy-loads janus on an event and no `opts`
+-- or `config` triggered setup() for us. Therefore, the `once` VimEnter autocmd would
+-- never run, and janus would silently do nothing. Run it now in that case.
+local function auto_init()
+  local janus = require("janus")
+  if not janus._did_setup then
+    janus.setup({})
+  end
+end
+
+if vim.v.vim_did_enter == 1 then
+  auto_init()
+else
+  vim.api.nvim_create_autocmd("VimEnter", {
+    group = vim.api.nvim_create_augroup("janus_autoinit", { clear = true }),
+    once = true,
+    callback = auto_init,
+  })
+end
 
 local function complete_set(arglead, cmdline, _)
   local parts = vim.split(cmdline, "%s+", { trimempty = false })
