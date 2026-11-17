@@ -22,7 +22,7 @@ local defaults = {
   --- Directory markers used to identify a project root when no `.janus`
   --- exists (only affects caching + where :JanusSet writes).
   root_markers = { ".git" },
-  --- Suppress "loaded X" / "not found" / "unknown key" notifications.
+  --- Suppress "loaded X" / "not found" notifications.
   silent = false,
 }
 
@@ -54,26 +54,33 @@ end
 --- workspace, so this only fires on a genuine workspace change.
 ---@param colorscheme string|nil
 ---@param background string|nil
+---@return boolean ok  false only when the colorscheme could not be loaded
 local function apply(colorscheme, background)
   local last = state.applied or {}
   if colorscheme == last.colorscheme and background == last.background then
-    return
+    return true
   end
-  if background then
+  local prev_background = vim.o.background
+  if background and background ~= prev_background then
     vim.o.background = background
   end
   if colorscheme then
     local ok = pcall(vim.cmd.colorscheme, colorscheme)
     if not ok then
+      -- a failed load must not leave a half-applied theme behind
+      if vim.o.background ~= prev_background then
+        vim.o.background = prev_background
+      end
       notify(
         ("colorscheme %q not found; keeping %s"):format(colorscheme, vim.g.colors_name or "default"),
         vim.log.levels.WARN
       )
-      return
+      return false
     end
     notify("loaded " .. colorscheme)
   end
   state.applied = { colorscheme = colorscheme, background = background or vim.o.background }
+  return true
 end
 
 --- The theme janus restores outside any workspace: an explicit config value,
@@ -104,8 +111,14 @@ function M.sync(opts)
   local start_dir = opts.dir or utils.buf_dir(0)
   if not start_dir then
     -- special/transient buffer (terminal, help, picker, tree): leave the
-    -- theme alone; the next real buffer's BufEnter will re-sync.
-    return
+    -- theme alone; the next real buffer's BufEnter will re-sync. The one
+    -- exception is before any workspace has been resolved (nvim started on a
+    -- dashboard or a tree): cwd is the only signal there, and it cannot be
+    -- stale yet.
+    if state.root ~= nil then
+      return
+    end
+    start_dir = uv.cwd()
   end
   local root, janus_path = utils.resolve_root(M.config.filename, M.config.root_markers, start_dir)
 
@@ -155,8 +168,15 @@ function M.cmd_set(fargs)
     return notify("background must be 'dark' or 'light'", vim.log.levels.ERROR)
   end
 
-  local root, janus_path = utils.resolve_root(M.config.filename, M.config.root_markers, utils.buf_dir(0) or uv.cwd())
+  local dir = utils.buf_dir(0) or uv.cwd()
+  local root, janus_path = utils.resolve_root(M.config.filename, M.config.root_markers, dir)
   local target = janus_path or utils.join(root, M.config.filename)
+
+  -- Apply before writing, so a typo'd colorscheme never reaches disk.
+  local _, base_background = revert_target()
+  if not apply(colorscheme, background or base_background) then
+    return
+  end
 
   local lines = { "# managed by janus.nvim", "colorscheme = " .. colorscheme }
   if background then
@@ -167,8 +187,9 @@ function M.cmd_set(fargs)
     return notify("failed to write " .. target, vim.log.levels.ERROR)
   end
   notify("wrote " .. target)
-  state.root = nil
-  M.sync({ force = true })
+  -- pass the dir explicitly: the focused buffer may be a special one
+  -- (dashboard, tree), which a plain sync would skip.
+  M.sync({ force = true, dir = dir })
 end
 
 function M.cmd_get()
@@ -183,7 +204,8 @@ function M.cmd_get()
 end
 
 function M.cmd_reset()
-  local _, janus_path = utils.resolve_root(M.config.filename, M.config.root_markers, utils.buf_dir(0) or uv.cwd())
+  local dir = utils.buf_dir(0) or uv.cwd()
+  local _, janus_path = utils.resolve_root(M.config.filename, M.config.root_markers, dir)
   if not janus_path then
     return notify("no " .. M.config.filename .. " governs this buffer", vim.log.levels.WARN)
   end
@@ -192,8 +214,7 @@ function M.cmd_reset()
     return notify("failed to remove " .. janus_path .. ": " .. tostring(err), vim.log.levels.ERROR)
   end
   notify("removed " .. janus_path)
-  state.root = nil
-  M.sync({ force = true })
+  M.sync({ force = true, dir = dir })
 end
 
 -- setup -------------------------------------------------------------------
@@ -205,16 +226,37 @@ function M.setup(user_config)
   state.root, state.baseline, state.applied = nil, nil, nil
 
   local group = vim.api.nvim_create_augroup("janus", { clear = true })
+  -- Two things matter for every trigger below:
+  --   * `:colorscheme` run from a non-nested autocmd does not fire
+  --     `ColorScheme`, so plugins that rebuild their highlights on that event
+  --     (file trees, statuslines) would keep the previous theme's colours.
+  --   * plugins often set 'buftype' just *after* their buffer is entered; a
+  --     sync that runs right at BufEnter sees a normal buffer and resolves it
+  --     against cwd. Deferring one tick lets the buffer settle first (and
+  --     runs outside the autocmd, so `ColorScheme` fires there too).
   vim.api.nvim_create_autocmd({ "VimEnter", "BufEnter" }, {
     group = group,
     callback = function()
-      M.sync()
+      vim.schedule(M.sync)
     end,
   })
   vim.api.nvim_create_autocmd("DirChanged", {
     group = group,
+    nested = true,
     callback = function(ev)
       M.sync({ dir = ev.file or vim.v.event.cwd })
+    end,
+  })
+  -- A `.janus` written by hand usually lands in a root janus has already
+  -- resolved, so the root cache would hide it until you left and came back.
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    nested = true,
+    callback = function(ev)
+      if vim.fs.basename(ev.file) == M.config.filename then
+        state.root = nil
+        M.sync()
+      end
     end,
   })
 

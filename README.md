@@ -19,7 +19,9 @@ The inspiration came from VS Code's Peacock extension. **janus.nvim** helps diff
 - Written in Lua against core Neovim APIs (0.9+). Nothing else to install.
 - Walks up to find the nearest `.janus`, stopping at a project boundary (`.git`) so a nested repo keeps its own theme.
 - Follows the file you are editing and re-syncs on `DirChanged`. Pickers, file trees, terminals and the quickfix window are ignored, so they never change your theme.
-- If the colorscheme you asked for is missing, janus keeps the current one and warns.
+- If the colorscheme you asked for is missing, janus keeps the current one and warns. `:JanusSet` with a name that does not load writes nothing.
+- Fires `ColorScheme` on every switch, so file trees and statuslines that rebuild their highlights stay in step.
+- Developed and tested on Linux and macOS. Windows is untested ([#1](https://github.com/BryanLukehartYun/janus.nvim/issues/1)).
 
 ---
 
@@ -57,7 +59,7 @@ _(Tab-completion is supported for all installed colorschemes and background mode
 
 ### 2. Manual `.janus` file
 
-Alternatively, create a `.janus` file in the root of your project:
+Alternatively, create a `.janus` file in the root of your project (it applies as soon as you save it from Neovim):
 
 ```ini
 # .janus
@@ -116,7 +118,7 @@ The one thing I'd still consider is a per-repo transparency toggle, since that's
 
 There is a concern that I did note: `.janus` is a custom dotfile and in case there is another user besides me, you would need to remember to include this filetype in the gitignore, so do note that
 
-> Note: It just occured to me that [carlhuda/janus](https://github.com/carlhuda/janus) also has the same name where in this case, its a distribution last updated circa ~10 years ago. If the name is a concern, let me know via git issue and I can explore it. I maintain that the name janus is appropriate for this usecase in any cases.
+> Note: It just occurred to me that [carlhuda/janus](https://github.com/carlhuda/janus) also has the same name where in this case, its a distribution last updated circa ~10 years ago. If the name is a concern, let me know via git issue and I can explore it. I maintain that the name janus is appropriate for this usecase in any cases.
 
 ---
 

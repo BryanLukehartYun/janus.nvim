@@ -3,7 +3,8 @@ local M = {}
 local uv = vim.uv or vim.loop
 
 --- Directory to start searching from for the given buffer.
---- Named, normal buffers -> their directory. A normal *unnamed* buffer
+--- Named, normal buffers -> their directory (a directory buffer, as in
+--- `nvim some/dir`, -> that directory itself). A normal *unnamed* buffer
 --- (fresh `:enew`, the startup buffer) -> the current working directory.
 --- Special buffers (`buftype ~= ""`: terminals, help, quickfix, plugin
 --- pickers and trees) -> `nil`; the theme should not react to those, so
@@ -19,6 +20,9 @@ function M.buf_dir(bufnr)
   local name = vim.api.nvim_buf_get_name(bufnr)
   if name == "" then
     return uv.cwd()
+  end
+  if vim.fn.isdirectory(name) == 1 then
+    return (name:gsub("(.)/+$", "%1"))
   end
   return vim.fs.dirname(name)
 end

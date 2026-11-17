@@ -72,9 +72,11 @@ ok(vim.fn.exists(":JanusSet") == 2, "auto-init: commands registered")
 -- source keeps the vim_did_enter branch instead. The live check is the
 -- `{ "BryanLukehartYun/janus.nvim", event = "VeryLazy" }` smoke test.
 local src = table.concat(vim.fn.readfile(plugin_file), "\n")
+-- It must be deferred one tick (vim.schedule), not run inline: the manager
+-- calls the user's setup(opts) right after sourcing, and that has to win.
 ok(
-  src:find("vim%.v%.vim_did_enter == 1", 1) ~= nil and src:find("auto_init%(%)", 1) ~= nil,
-  "auto-init: plugin/ initialises inline when vim_did_enter is set"
+  src:find("vim%.v%.vim_did_enter == 1", 1) ~= nil and src:find("vim%.schedule%(auto_init%)", 1) ~= nil,
+  "auto-init: plugin/ initialises (deferred) when vim_did_enter is set"
 )
 
 -- integration ---------------------------------------------------------
@@ -171,6 +173,127 @@ ok(vim.g.janus_variant == "light", "shim cs: workspace variant applied")
 vim.cmd.edit(vim.fn.tempname() .. ".txt")
 require("janus").sync({ force = true })
 ok(vim.g.janus_variant == "one", "shim cs: revert re-sources despite unchanged colors_name")
+
+-- ======================================================================
+-- Regressions driven through the real autocmds (not direct sync() calls).
+-- The BufEnter sync is deferred one tick, so `settle()` pumps the loop.
+-- ======================================================================
+local janus = require("janus")
+local function settle()
+  vim.wait(20)
+end
+local ws = vim.fn.tempname()
+for _, d in ipairs({ "A/.git", "A/src", "B/.git", "C/.git" }) do
+  vim.fn.mkdir(ws .. "/" .. d, "p")
+end
+vim.fn.writefile({ "colorscheme = janustwo" }, ws .. "/A/.janus")
+local function fresh(opts)
+  settle()
+  vim.cmd("silent! %bwipeout!")
+  vim.cmd.colorscheme("janusone")
+  janus.setup(vim.tbl_extend("force", { silent = true }, opts or {}))
+end
+
+-- parser: quoted values
+ok(parser.parse({ 'colorscheme = "janustwo"' }).colorscheme == "janustwo", "parse: double-quoted value")
+ok(parser.parse({ "background = 'light'" }).background == "light", "parse: single-quoted value")
+
+-- ColorScheme must fire when janus switches from its own autocmds, or other
+-- plugins (file trees, statuslines) keep the previous theme's highlights.
+fresh()
+local fired = 0
+local cs_au = vim.api.nvim_create_autocmd("ColorScheme", {
+  callback = function()
+    fired = fired + 1
+  end,
+})
+vim.cmd.edit(ws .. "/B/g.lua")
+settle()
+fired = 0
+vim.cmd.edit(ws .. "/A/src/f.lua")
+settle()
+ok(vim.g.colors_name == "janustwo", "autocmd: BufEnter applies the workspace theme")
+ok(fired == 1, "autocmd: ColorScheme fires on apply")
+fired = 0
+vim.cmd.edit(ws .. "/B/g.lua")
+settle()
+ok(vim.g.colors_name == "janusone" and fired == 1, "autocmd: ColorScheme fires on revert")
+vim.api.nvim_del_autocmd(cs_au)
+
+-- A plugin buffer that sets 'buftype' right after being entered (file trees)
+-- must not be resolved against cwd.
+fresh()
+vim.cmd.cd(ws .. "/B")
+vim.cmd.edit(ws .. "/A/src/f.lua")
+settle()
+vim.cmd("vsplit | enew")
+vim.api.nvim_buf_set_name(0, "janus-fake-tree [1]")
+vim.bo.buftype = "nofile"
+settle()
+ok(vim.g.colors_name == "janustwo", "late buftype: tree-like buffer does not flip the theme")
+vim.cmd("only")
+
+-- Directory buffers (`nvim some/dir`) resolve to the directory itself.
+fresh()
+vim.cmd.edit(ws .. "/A")
+ok(
+  vim.fn.resolve(utils.buf_dir(0)) == vim.fn.resolve(ws .. "/A"),
+  "dir buffer: buf_dir is the directory, not its parent"
+)
+settle()
+ok(vim.g.colors_name == "janustwo", "dir buffer: workspace theme applied")
+
+-- Started on a special buffer (dashboard): cwd decides until a root is known.
+settle()
+vim.cmd("silent! %bwipeout!")
+vim.cmd.colorscheme("janusone")
+vim.api.nvim_create_augroup("janus", { clear = true }) -- so the cd below is not a DirChanged sync
+vim.cmd.cd(ws .. "/A")
+vim.bo.buftype = "nofile"
+janus.setup({ silent = true })
+janus.sync()
+ok(vim.g.colors_name == "janustwo", "dashboard start: cwd's workspace theme applied")
+vim.cmd.cd(ws .. "/B")
+vim.cmd.colorscheme("janustwo")
+janus.sync()
+ok(vim.g.colors_name == "janustwo", "dashboard start: later special-buffer syncs stay inert")
+
+-- :JanusSet / :JanusReset from a special buffer act on cwd and take effect.
+fresh()
+vim.cmd.edit(ws .. "/B/g.lua")
+settle()
+vim.cmd.cd(ws .. "/C")
+vim.cmd.enew()
+vim.bo.buftype = "nofile"
+settle()
+janus.cmd_set({ "janustwo" })
+ok(uv.fs_stat(ws .. "/C/.janus") ~= nil, "JanusSet (special buf): file written at cwd's root")
+ok(vim.g.colors_name == "janustwo", "JanusSet (special buf): theme applied")
+janus.cmd_reset()
+ok(
+  uv.fs_stat(ws .. "/C/.janus") == nil and vim.g.colors_name == "janusone",
+  "JanusReset (special buf): removed + reverted"
+)
+
+-- :JanusSet with an unknown colorscheme writes nothing and changes nothing.
+fresh()
+vim.cmd.edit(ws .. "/B/g.lua")
+settle()
+vim.o.background = "dark"
+janus.cmd_set({ "no_such_scheme_xyz", "light" })
+ok(uv.fs_stat(ws .. "/B/.janus") == nil, "JanusSet typo: nothing written")
+ok(vim.g.colors_name == "janusone" and vim.o.background == "dark", "JanusSet typo: theme and background untouched")
+
+-- A hand-written .janus in an already-resolved root applies on save.
+fresh()
+vim.cmd.edit(ws .. "/B/g.lua")
+settle()
+vim.cmd.edit(ws .. "/B/.janus")
+settle()
+vim.api.nvim_buf_set_lines(0, 0, -1, false, { "colorscheme = janustwo" })
+vim.cmd("silent write")
+ok(vim.g.colors_name == "janustwo", "hand-written .janus: applied on write")
+vim.fn.delete(ws .. "/B/.janus")
 
 print(("\n%d passed, %d failed"):format(pass, fail))
 vim.cmd(fail == 0 and "qa!" or "cq")

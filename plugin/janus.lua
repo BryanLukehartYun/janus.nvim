@@ -7,10 +7,12 @@ vim.g.loaded_janus = true
 -- `.janus` switching works out of the box. An explicit setup() still wins
 -- (it re-clears the augroup).
 --
--- If this file is sourced after VimEnter has already fired which is what
--- happens when a plugin manager lazy-loads janus on an event and no `opts`
--- or `config` triggered setup() for us. Therefore, the `once` VimEnter autocmd would
--- never run, and janus would silently do nothing. Run it now in that case.
+-- If this file is sourced after VimEnter has already fired (a plugin manager
+-- lazy-loading janus on an event), the `once` VimEnter autocmd would never
+-- run and janus would silently do nothing, so init from here instead -- but
+-- one tick later. The manager calls the user's setup(opts) right after
+-- sourcing this file; initialising inline would apply the workspace theme
+-- first, and that setup() would then record it as the theme to revert to.
 local function auto_init()
   local janus = require("janus")
   if not janus._did_setup then
@@ -19,7 +21,7 @@ local function auto_init()
 end
 
 if vim.v.vim_did_enter == 1 then
-  auto_init()
+  vim.schedule(auto_init)
 else
   vim.api.nvim_create_autocmd("VimEnter", {
     group = vim.api.nvim_create_augroup("janus_autoinit", { clear = true }),

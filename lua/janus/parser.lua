@@ -3,6 +3,7 @@ local M = {}
 --- Parse `.janus` file lines into a config table.
 --- Recognizes exactly two keys: `colorscheme` and `background`.
 --- Blank lines and lines whose first non-blank char is `#` are ignored.
+--- A value may be wrapped in matching single or double quotes.
 --- `background` must be "dark" or "light"; any other value is dropped.
 --- Never errors -- malformed lines are skipped silently.
 ---@param lines string[]
@@ -15,6 +16,7 @@ function M.parse(lines)
       local key, value = s:match("^([%w_]+)%s*=%s*(.-)%s*$")
       if key then
         key = key:lower()
+        value = value:gsub("^([\"'])(.*)%1$", "%2")
         if key == "colorscheme" and value ~= "" then
           out.colorscheme = value
         elseif key == "background" and (value == "dark" or value == "light") then
